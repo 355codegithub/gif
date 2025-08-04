@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connect 4 with AI</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; }
+    table { border-collapse: collapse; margin: auto; }
+    td {
+      width: 60px;
+      height: 60px;
+      border: 2px solid #000;
+      font-size: 2rem;
+      text-align: center;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Connect 4: You (🔵) vs AI (🔴)</h1>
+  <table id="board"></table>
+  <p id="status"></p>
+
+  <script>
+    const ROWS = 6, COLS = 7;
+    const HUMAN = '🔵', AI = '🔴', EMPTY = '';
+    let board = Array.from({ length: ROWS }, () => Array(COLS).fill(EMPTY));
+    let gameOver = false;
+
+    function createBoard() {
+      const table = document.getElementById('board');
+      table.innerHTML = '';
+      for (let r = 0; r < ROWS; r++) {
+        const row = document.createElement('tr');
+        for (let c = 0; c < COLS; c++) {
+          const cell = document.createElement('td');
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+          cell.addEventListener('click', () => handleMove(c));
+          row.appendChild(cell);
+        }
+        table.appendChild(row);
+      }
+      render();
+    }
+
+    function render() {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          document.querySelector(`td[data-row='${r}'][data-col='${c}']`).textContent = board[r][c];
+        }
+      }
+    }
+
+    function getValidLocations(b) {
+      return [...Array(COLS).keys()].filter(c => b[0][c] === EMPTY);
+    }
+
+    function getNextOpenRow(b, col) {
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (b[r][col] === EMPTY) return r;
+      }
+      return null;
+    }
+
+    function dropPiece(b, row, col, piece) {
+      b[row][col] = piece;
+    }
+
+    function isWinningMove(b, piece) {
+      // Horizontal
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS - 3; c++)
+          if ([0, 1, 2, 3].every(i => b[r][c + i] === piece)) return true;
+
+      // Vertical
+      for (let c = 0; c < COLS; c++)
+        for (let r = 0; r < ROWS - 3; r++)
+          if ([0, 1, 2, 3].every(i => b[r + i][c] === piece)) return true;
+
+      // Diagonal /
+      for (let r = 3; r < ROWS; r++)
+        for (let c = 0; c < COLS - 3; c++)
+          if ([0, 1, 2, 3].every(i => b[r - i][c + i] === piece)) return true;
+
+      // Diagonal \
+      for (let r = 0; r < ROWS - 3; r++)
+        for (let c = 0; c < COLS - 3; c++)
+          if ([0, 1, 2, 3].every(i => b[r + i][c + i] === piece)) return true;
+
+      return false;
+    }
+
+    function scorePosition(b, piece) {
+      let score = 0;
+      const opp = piece === AI ? HUMAN : AI;
+
+      // Score center
+      const centerCol = b.map(row => row[Math.floor(COLS / 2)]);
+      const centerCount = centerCol.filter(cell => cell === piece).length;
+      score += centerCount * 3;
+
+      // Score horizontal
+      for (let r = 0; r < ROWS; r++) {
+        const row = b[r];
+        for (let c = 0; c < COLS - 3; c++) {
+          const window = row.slice(c, c + 4);
+          score += evaluateWindow(window, piece, opp);
+        }
+      }
+
+      // Vertical
+      for (let c = 0; c < COLS; c++) {
+        for (let r = 0; r < ROWS - 3; r++) {
+          const window = [0, 1, 2, 3].map(i => b[r + i][c]);
+          score += evaluateWindow(window, piece, opp);
+        }
+      }
+
+      // Diagonal /
+      for (let r = 3; r < ROWS; r++) {
+        for (let c = 0; c < COLS - 3; c++) {
+          const window = [0, 1, 2, 3].map(i => b[r - i][c + i]);
+          score += evaluateWindow(window, piece, opp);
+        }
+      }
+
+      // Diagonal \
+      for (let r = 0; r < ROWS - 3; r++) {
+        for (let c = 0; c < COLS - 3; c++) {
+          const window = [0, 1, 2, 3].map(i => b[r + i][c + i]);
+          score += evaluateWindow(window, piece, opp);
+        }
+      }
+
+      return score;
+    }
+
+    function evaluateWindow(window, piece, opp) {
+      let score = 0;
+      const count = (arr, val) => arr.filter(x => x === val).length;
+
+      if (count(window, piece) === 4) score += 100;
+      else if (count(window, piece) === 3 && count(window, EMPTY) === 1) score += 5;
+      else if (count(window, piece) === 2 && count(window, EMPTY) === 2) score += 2;
+
+      if (count(window, opp) === 3 && count(window, EMPTY) === 1) score -= 4;
+
+      return score;
+    }
+
+    function minimax(b, depth, alpha, beta, maximizing) {
+      const valid = getValidLocations(b);
+      const isTerminal = isWinningMove(b, HUMAN) || isWinningMove(b, AI) || valid.length === 0;
+
+      if (depth === 0 || isTerminal) {
+        if (isWinningMove(b, AI)) return [null, 100000000];
+        else if (isWinningMove(b, HUMAN)) return [null, -100000000];
+        else return [null, scorePosition(b, AI)];
+      }
+
+      if (maximizing) {
+        let value = -Infinity, bestCol = valid[Math.floor(Math.random() * valid.length)];
+        for (let col of valid) {
+          let temp = b.map(r => r.slice());
+          let row = getNextOpenRow(temp, col);
+          dropPiece(temp, row, col, AI);
+          let [, newScore] = minimax(temp, depth - 1, alpha, beta, false);
+          if (newScore > value) {
+            value = newScore;
+            bestCol = col;
+          }
+          alpha = Math.max(alpha, value);
+          if (alpha >= beta) break;
+        }
+        return [bestCol, value];
+      } else {
+        let value = Infinity, bestCol = valid[Math.floor(Math.random() * valid.length)];
+        for (let col of valid) {
+          let temp = b.map(r => r.slice());
+          let row = getNextOpenRow(temp, col);
+          dropPiece(temp, row, col, HUMAN);
+          let [, newScore] = minimax(temp, depth - 1, alpha, beta, true);
+          if (newScore < value) {
+            value = newScore;
+            bestCol = col;
+          }
+          beta = Math.min(beta, value);
+          if (alpha >= beta) break;
+        }
+        return [bestCol, value];
+      }
+    }
+
+    function handleMove(col) {
+      if (gameOver) return;
+      const row = getNextOpenRow(board, col);
+      if (row === null) return;
+
+      dropPiece(board, row, col, HUMAN);
+      render();
+      if (isWinningMove(board, HUMAN)) {
+        document.getElementById('status').textContent = "You win! 🎉";
+        gameOver = true;
+        return;
+      }
+
+      if (getValidLocations(board).length === 0) {
+        document.getElementById('status').textContent = "Draw!";
+        return;
+      }
+
+      setTimeout(() => {
+        const [aiCol] = minimax(board, 8, -Infinity, Infinity, true); // Depth 6
+        const aiRow = getNextOpenRow(board, aiCol);
+        dropPiece(board, aiRow, aiCol, AI);
+        render();
+
+        if (isWinningMove(board, AI)) {
+          document.getElementById('status').textContent = "AI wins! 💻🔴";
+          gameOver = true;
+        }
+      }, 200);
+    }
+
+    createBoard();
+  </script>
+</body>
+</html>
